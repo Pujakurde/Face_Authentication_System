@@ -1,0 +1,11 @@
+2026-01-27 17:00:07 | INFO | Application started
+2026-01-27 17:00:07 | INFO | Camera initialized
+2026-01-27 17:00:07 | WARN | No registered users found. Authentication only mode.
+2026-01-27 17:00:14 | INFO | Registration started for 'puja'
+2026-01-27 17:00:29 | SUCCESS | User 'puja' registered successfully
+2026-01-27 17:00:29 | INFO | Matching 'puja' | score=0.55
+2026-01-27 17:00:29 | INFO | Matching 'puja' | score=0.56
+2026-01-27 17:00:29 | INFO | Matching 'puja' | score=0.57
+2026-01-27 17:00:29 | INFO | Matching 'puja' | score=0.59
+2026-01-27 17:00:29 | SUCCESS | Authentication SUCCESS for 'puja'
+2026-01-27 17:00:40 | INFO | System shutting down
