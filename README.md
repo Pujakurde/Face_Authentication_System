@@ -205,7 +205,5 @@ Focus Areas:
 * Computer Vision
 * Applied Machine Learning
 
-```
-
 
 
