@@ -585,7 +585,6 @@ class FaceAuthApp(ctk.CTk):
         welcome = WelcomeScreen(user)
         welcome.mainloop()
 
-
     def schedule_next_frame(self):
         if self.running and self.winfo_exists():
             self.after_id = self.after(30, self.update_frame)
