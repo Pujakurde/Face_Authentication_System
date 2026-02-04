@@ -194,16 +194,6 @@ python run.py
 
 ---
 
-## Why This Project Stands Out
-
-* Not a tutorial-based implementation
-* Designed with security-first principles
-* Clear state management and flow control
-* Extendable for research and production
-* Suitable for system design and security interviews
-
----
-
 ## Author
 
 **Puja Kurde**
