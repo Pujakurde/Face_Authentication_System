@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import tkinter.messagebox as mbox
 import cv2
 import numpy as np
 import os
@@ -12,6 +13,8 @@ from face_detection.face_detector import FaceDetector
 from app.face_matcher import FaceMatcher
 from app.welcomescreen import WelcomeScreen
 from app.session_store import save_login
+from anti_spoofing.predictor import AntiSpoofingPredictor
+
 
 # ================= CONFIG ================= #
 
@@ -45,7 +48,14 @@ def has_registered_users():
 
 class GuiLogHandler(logging.Handler):
     def __init__(self, gui_logger):
-        super().__init__()
+
+        """
+        Initialize the class instance.
+        
+        Args:
+            gui_logger: A logger object for GUI-related logging functionality.
+        """
+        super().__init__()  # Call the parent class's __init__ method
         self.gui_logger = gui_logger
 
     def emit(self, record):
@@ -60,8 +70,13 @@ class FaceAuthApp(ctk.CTk):
         super().__init__()
 
         self.title("Secure Face Authentication System")
-        self.geometry("900x650")
-        self.resizable(False, False)
+        # Adapt to screen size for production GUI behavior
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        win_w = min(900, int(screen_w * 0.8))
+        win_h = min(750, int(screen_h * 0.8))
+        self.geometry(f"{win_w}x{win_h}")
+        self.resizable(True, True)
 
         # Core
         self.cap = cv2.VideoCapture(0)
@@ -106,6 +121,13 @@ class FaceAuthApp(ctk.CTk):
 
         self.running = True
         self.after_id = None
+
+        # AntiSpoofing (one-time session gate)
+        self.anti_spoof = AntiSpoofingPredictor()
+        self.antispoof_passed = False
+        self.antispoof_blocked_logged = False
+        self.multiface_blocked = False
+
 
         # Redirect all logging to GUI
         handler = GuiLogHandler(self.log)
@@ -193,15 +215,40 @@ class FaceAuthApp(ctk.CTk):
             return
 
         faces = self.detector.detect(frame)
+        # Security: block if multiple faces are present
+        if faces and len(faces) > 1:
+            if not self.multiface_blocked:
+                self.multiface_blocked = True
+                self.log("Multiple faces detected. Authentication/registration blocked.", "WARN")
+                mbox.showwarning(
+                    "Security Warning",
+                    "Multiple faces detected. Only one person is allowed."
+                )
+            self.status.configure(text="Multiple faces detected")
+            self.auth_in_progress = False
+            if self.mode == "REGISTER" or self.registration_active:
+                self.abort_registration()
+            else:
+                self.reset_liveness("Multiple faces detected")
+            self.render(frame)
+            self.schedule_next_frame()
+            return
+        if self.multiface_blocked:
+            self.multiface_blocked = False
+
         if self.auth_in_progress:
             if faces:
                 x, y, w, h = faces[0]
                 face = frame[y:y+h, x:x+w]
-                self.authenticate(face)
+                #self.authenticate(face)
+                self.authenticate(frame, (x, y, w, h))
             else:
                 self.auth_in_progress = False
                 self.liveness_locked = False
                 self.liveness_consumed = False
+                self.anti_spoof.reset()
+                self.antispoof_passed = False
+                self.antispoof_blocked_logged = False
                 self.flow_state = "WAIT_FACE"
                 self.status.configure(text="Face lost")
                 self.log("Authentication finished")
@@ -262,6 +309,10 @@ class FaceAuthApp(ctk.CTk):
 
             if not faces:
                 self.flow_state = "WAIT_FACE"
+                # Face lost → new security session
+                self.anti_spoof.reset()
+                self.antispoof_passed = False
+                self.antispoof_blocked_logged = False
                 self.reset_liveness("Face lost")
                 return
 
@@ -273,9 +324,14 @@ class FaceAuthApp(ctk.CTk):
                 self.auth_finalized = False
                 self.auth_votes.clear()
                 self.auth_candidate_user = None
+                # New auth session: do not reset anti-spoof if already passed
+                if not self.antispoof_passed:
+                    self.anti_spoof.reset()
+                    self.antispoof_blocked_logged = False
                 self.log("Authentication started")
 
-            self.authenticate(face)
+            #self.authenticate(face)
+            self.authenticate(frame, (x, y, w, h))
 
 
         # ---------- RENDER ----------
@@ -469,9 +525,13 @@ class FaceAuthApp(ctk.CTk):
         self.auth_in_progress = False
         self.last_capture_time = 0
         self.reset_liveness(msg)
+        # New authentication session after registration
+        self.anti_spoof.reset()
+        self.antispoof_passed = False
+        self.antispoof_blocked_logged = False
 
     # ================= AUTH ================ #
-    def authenticate(self, face):
+    def authenticate(self, frame, face_bbox):
 
         if self.auth_finalized:
             return False
@@ -479,6 +539,22 @@ class FaceAuthApp(ctk.CTk):
         if not has_registered_users():
             self.reset_auth("No registered users")
             return False
+
+        x, y, w, h = face_bbox
+        face = frame[y:y+h, x:x+w]
+
+        # Security: one-time anti-spoof gate per session
+        if not self.antispoof_passed:
+            if self.anti_spoof.predict(frame, (x, y, w, h)):
+                self.antispoof_passed = True
+                self.log("Anti-spoofing PASSED (locked for session)", "SUCCESS")
+            else:
+                if not self.antispoof_blocked_logged:
+                    self.log("Anti-spoofing BLOCKED (spoof suspected)", "WARN")
+                    self.antispoof_blocked_logged = True
+                # Gate only: do not poison identity votes while verifying presence
+                self.status.configure(text="Hold still, verifying real presence...")
+                return False
 
         if not self.detector.quality_ok(face):
             self.record_auth_vote(False)
@@ -549,6 +625,7 @@ class FaceAuthApp(ctk.CTk):
         self.auth_finalized = False
         self.auth_candidate_user = None
         self.auth_votes.clear()
+        # Anti-spoofing is session-level and must not reset on auth failure
 
         self.liveness_locked = False
         self.liveness_consumed = False
@@ -613,6 +690,9 @@ class FaceAuthApp(ctk.CTk):
     # ================= EXIT ================= #
     def close(self):
         self.log("System shutting down")
+        self.anti_spoof.reset()
+        self.antispoof_passed = False
+        self.antispoof_blocked_logged = False
         self.safe_shutdown()
         if self.winfo_exists():
             self.destroy()

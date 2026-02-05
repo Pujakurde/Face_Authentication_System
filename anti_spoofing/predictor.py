@@ -79,7 +79,7 @@ class AntiSpoofingPredictor:
         decision = self.real_frames >= self.REQUIRED_REAL_FRAMES
 
         # -------- Debug --------
-        print(
+        log_debug(
             f"[AntiSpoof] blur={blur:.1f} "
             f"motion={motion:.2f} "
             f"ratio={ratio:.3f} "
