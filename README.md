@@ -214,8 +214,3 @@ Focus Areas:
 * Secure Systems
 * Computer Vision
 * Applied Machine Learning
-
-```
-
-
-
